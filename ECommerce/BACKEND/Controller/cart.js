@@ -2,7 +2,6 @@ const jwt = require("jsonwebtoken");
 const {Product} = require("../models/Product");
 const {User} = require("../models/User");
 const {Cart} = require("../models/Cart");
-// blah blah blah blah blah
 async function handleGetCart(req,res) {
     try{
         const{token} = req.headers;
