@@ -2,6 +2,8 @@ const jwt = require("jsonwebtoken");
 const { Product } = require("../models/Product");
 const { User } = require("../models/User");
 const { Cart } = require("../models/Cart");
+const sendEmail = require("../utils/userEmail");
+
 async function handleGetCart(req, res) {
   try {
     const { token } = req.headers;
@@ -177,6 +179,10 @@ async function handleUpdatedCart(req,res) {
       error,
     });
   }
+}
+
+async function handleSendEmail(params) {
+  
 }
 
 module.exports = {
