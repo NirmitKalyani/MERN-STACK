@@ -57,12 +57,12 @@ async function handleAddToCart(req, res) {
     if (!user) {
       return res.send("User not logged in");
     }
-    console.log(user)
+    console.log(user);
     const product = await Product.findById(id);
     let cart;
-    if(user.cart){
+    if (user.cart) {
       cart = await Cart.findById(user.cart);
-      if(!cart){
+      if (!cart) {
         cart = await Cart.create({
           products: [{ product: id, quantity }],
           total: product.price * quantity,
@@ -70,24 +70,24 @@ async function handleAddToCart(req, res) {
         user.cart = cart._id;
         await User.save();
         return res.send("Item added to cart");
-      }else{
+      } else {
         const exists = cart.products.some(
-              (product) => product.product.toString() === id.toString()
-            );
-            if (exists) {
-              return res.send("Item already exists...Go to cart");
-            }
-      
-            cart.products.push({
-              product: id,
-              quantity,
-            });
-            cart.total += product.price * quantity;
-            await cart.save();
+          (product) => product.product.toString() === id.toString()
+        );
+        if (exists) {
+          return res.send("Item already exists...Go to cart");
+        }
+
+        cart.products.push({
+          product: id,
+          quantity,
+        });
+        cart.total += product.price * quantity;
+        await cart.save();
       }
-    // if (cart) {
-    //   // const old_cart = await Cart.findByIdAndUpdate(id,{$set:{quantity}});
-    //   
+      // if (cart) {
+      //   // const old_cart = await Cart.findByIdAndUpdate(id,{$set:{quantity}});
+      //
     } else {
       const new_cart = await Cart.create({
         products: [{ product: id, quantity }],
@@ -114,8 +114,8 @@ async function handleAddToCart(req, res) {
   }
 }
 
-async function handleUpdatedCart(req,res) {
-  try{
+async function handleUpdatedCart(req, res) {
+  try {
     const { token } = req.headers;
     let { id, action } = req.body;
 
@@ -127,52 +127,55 @@ async function handleUpdatedCart(req,res) {
     }
     const decodeToken = jwt.verify(token, "secretkey");
     const user = await User.findOne({ email: decodeToken.email }).populate({
-      path:"cart",
-      populate:{
-        path:"products.product",
-        model:"product"
-      }
+      path: "cart",
+      populate: {
+        path: "products.product",
+        model: "product",
+      },
     });
 
-    if(!user || !user.cart){
+    if (!user || !user.cart) {
       return res.status(404).send("Cart not found...");
     }
 
     const cart = user.cart;
-    const item = cart.products.find(p=>p.product._id.toString()===id)    
+    const item = cart.products.find((p) => p.product._id.toString() === id);
 
-    if(!item){
+    if (!item) {
       return res.status(404).send("Product not found in cart...");
     }
 
     const price = item.product.price;
 
-    if(action==="increase"){
+    if (action === "increase") {
       item.quantity += 1;
       cart.total += price;
-    }else if(action==="decrease"){
-      if(item.quantity>1){
+    } else if (action === "decrease") {
+      if (item.quantity > 1) {
         item.quantity -= 1;
         cart.total -= price;
-      }else{
+      } else {
         cart.total -= price;
-        cart.products = cart.products.filter(p=>p.product._id.toString()!==id);
+        cart.products = cart.products.filter(
+          (p) => p.product._id.toString() !== id
+        );
       }
-    }else if(action==="remove"){
-        cart.total -= price*item.quantity;
-        cart.products = cart.products.filter(p=>p.product._id.toString()!==id);
-    }else{
+    } else if (action === "remove") {
+      cart.total -= price * item.quantity;
+      cart.products = cart.products.filter(
+        (p) => p.product._id.toString() !== id
+      );
+    } else {
       return res.status(400).send("Invalid Action...");
     }
 
     await cart.save();
 
     return res.status(200).send({
-      msg:"Cart Updated...",
-      cart
+      msg: "Cart Updated...",
+      cart,
     });
-
-  }catch(error) {
+  } catch (error) {
     console.log(error);
     res.status(500).send({
       msg: "interna; server error",
@@ -181,12 +184,76 @@ async function handleUpdatedCart(req,res) {
   }
 }
 
-async function handleSendEmail(params) {
-  
+async function handlePayment(req, res) {
+  try {
+    const { token } = req.headers;
+    const decodedToken = jwt.verify(token, "supersecret");
+    const user = await User.findOne({ email: decodedToken.email }).populate({
+      path: "cart",
+      populate: {
+        path: "products.product",
+        model: "Product",
+      },
+    });
+    if (!user || !user.cart || user.cart.products.length === 0) {
+      res.status(404).json({ message: "user or cart not found" });
+    }
+
+    //payment
+    const lineItems = user.cart.products.map((item) => {
+      return {
+        price_data: {
+          currency: "inr",
+          product_data: {
+            name: item.product.name,
+          },
+          unit_amount: item.product.price * 100,
+        },
+        quantity: item.quantity,
+      };
+    });
+
+    const curentUrl = process.env.CLIENT_URL;
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: lineItems,
+      mode: "payment",
+      success_url: `${curentUrl}/success`,
+      cancel_url: `${curentUrl}/cancel`,
+    });
+
+    //send email to user
+    await sendEmail(
+      user.email,
+
+      user.cart.products.map((item) => ({
+        name: item.product.name,
+        price: item.product.price,
+      }))
+    );
+
+    //empty cart
+    user.cart.products = [];
+    user.cart.total = 0;
+    await user.cart.save();
+    await user.save();
+    res.status(200).json({
+      message: "get the payment url",
+      url: session.url,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 }
+
+// async function handleSendEmail(params) {
+
+// }
 
 module.exports = {
   handleGetCart,
   handleAddToCart,
   handleUpdatedCart,
+  handlePayment,
 };
